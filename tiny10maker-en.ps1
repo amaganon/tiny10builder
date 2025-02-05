@@ -267,6 +267,7 @@ Remove-Item -Path "$WorkDrive\tempdirectory" -Recurse -Force -ErrorAction Silent
 
 Write-Host "Process finished."
 
+# Stop the transcript
 Stop-Transcript
 
-Clear-Host
+exit

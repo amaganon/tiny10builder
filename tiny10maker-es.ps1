@@ -248,6 +248,7 @@ Remove-Item -Path "$DiscoTrabajo\directoriotemporal" -Recurse -Force -ErrorActio
 
 Write-Host "Proceso finalizado."
 
+# Stop the transcript
 Stop-Transcript
 
-Clear-Host
+exit
