@@ -214,4 +214,40 @@ Remove-Item -Path "$DiscoTrabajo\tiny10\sources\install.wim" -Force | Out-Null
 Rename-Item -Path "$DiscoTrabajo\tiny10\sources\install2.wim" -NewName "install.wim" | Out-Null
 
 Write-Host "Procesando imagen boot.wim..."
+
+# Creación de ISO
+
+Write-Host "Verificando la presencia de oscdimg.exe..."
+$oscdimgPath = Join-Path $PSScriptRoot "oscdimg.exe"
+
+if (-not (Test-Path $oscdimgPath)) {
+    Write-Host "ERROR: No se encuentra oscdimg.exe en el directorio actual."
+    Write-Host "Por favor, asegurese de que oscdimg.exe este en el mismo directorio que este script."
+    exit
+}
+
+Write-Host "Creando archivo ISO..."
+$fechaHora = Get-Date -Format "yyyyMMdd-HHmm"
+$isoNombre = "tiny10_$fechaHora.iso"
+$isoRuta = Join-Path $DiscoTrabajo $isoNombre
+
+# Crear el ISO usando oscdimg
+& $oscdimgPath -m -o -u2 -udfver102 -bootdata:2#p0,e,b"$DiscoTrabajo\tiny10\boot\etfsboot.com"#pEF,e,b"$DiscoTrabajo\tiny10\efi\microsoft\boot\efisys.bin" "$DiscoTrabajo\tiny10" "$isoRuta"
+
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "`nProceso completado exitosamente!"
+    Write-Host "El archivo ISO ha sido creado en: $isoRuta"
+} else {
+    Write-Host "`nError al crear el archivo ISO. Codigo de error: $LASTEXITCODE"
+}
+
+# Limpiar archivos temporales
+Write-Host "`nLimpiando archivos temporales..."
+Remove-Item -Path "$DiscoTrabajo\tiny10" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "$DiscoTrabajo\directoriotemporal" -Recurse -Force -ErrorAction SilentlyContinue
+
+Write-Host "Proceso finalizado."
+
+Stop-Transcript
+
 Clear-Host
