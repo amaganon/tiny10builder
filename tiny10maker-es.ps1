@@ -3,22 +3,22 @@
 
 param (
     [ValidatePattern('^[c-zC-Z]$')]
-    [string]$DiscoTrabajo
+    [string]$ScratchDisk
 )
 
-if (-not $DiscoTrabajo) {
-    $DiscoTrabajo = $PSScriptRoot -replace '[\\]+$', ''
+if (-not $ScratchDisk) {
+    $ScratchDisk = $PSScriptRoot -replace '[\\]+$', ''
 } else {
-    $DiscoTrabajo = $DiscoTrabajo + ":"
+    $ScratchDisk = $ScratchDisk + ":"
 }
 
-Write-Output "Disco de trabajo establecido en $DiscoTrabajo"
+Write-Output "Disco temporal establecido en $ScratchDisk"
 
-# Verificar politica de ejecucion de PowerShell
+# Verificar si la ejecucion de PowerShell esta restringida
 if ((Get-ExecutionPolicy) -eq 'Restricted') {
-    Write-Host "La politica actual de ejecucion de PowerShell esta configurada como Restricted, lo que impide la ejecucion de scripts. Desea cambiarla a RemoteSigned? (si/no)"
-    $respuesta = Read-Host
-    if ($respuesta -eq 'si') {
+    Write-Host "Tu politica actual de ejecucion de PowerShell esta configurada como Restringida, lo que impide que se ejecuten scripts. Deseas cambiarla a RemoteSigned? (si/no)"
+    $response = Read-Host
+    if ($response -eq 'si') {
         Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Confirm:$false
     } else {
         Write-Host "El script no puede ejecutarse sin cambiar la politica de ejecucion. Saliendo..."
@@ -26,106 +26,117 @@ if ((Get-ExecutionPolicy) -eq 'Restricted') {
     }
 }
 
-# Verificar y ejecutar como administrador
+# Verificar y ejecutar el script como administrador si es necesario
 $adminSID = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
 $adminGroup = $adminSID.Translate([System.Security.Principal.NTAccount])
-$miWindowsID = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-$miWindowsPrincipal = new-object System.Security.Principal.WindowsPrincipal($miWindowsID)
-$rolAdmin = [System.Security.Principal.WindowsBuiltInRole]::Administrator
+$myWindowsID=[System.Security.Principal.WindowsIdentity]::GetCurrent()
+$myWindowsPrincipal=new-object System.Security.Principal.WindowsPrincipal($myWindowsID)
+$adminRole=[System.Security.Principal.WindowsBuiltInRole]::Administrator
 
-if (-not $miWindowsPrincipal.IsInRole($rolAdmin)) {
-    Write-Host "Reiniciando el creador de imagen Tiny10 como administrador en una nueva ventana, puede cerrar esta."
-    $nuevoProcess = new-object System.Diagnostics.ProcessStartInfo "PowerShell"
-    $nuevoProcess.Arguments = $myInvocation.MyCommand.Definition
-    $nuevoProcess.Verb = "runas"
-    [System.Diagnostics.Process]::Start($nuevoProcess)
+if (-not $myWindowsPrincipal.IsInRole($adminRole)) {
+    Write-Host "Reiniciando el creador de imagen Tiny10 como administrador en una nueva ventana, puedes cerrar esta."
+    $newProcess = new-object System.Diagnostics.ProcessStartInfo "PowerShell"
+    $newProcess.Arguments = $myInvocation.MyCommand.Definition
+    $newProcess.Verb = "runas"
+    [System.Diagnostics.Process]::Start($newProcess)
     exit
 }
 
-# Iniciar registro y preparar ventana
-Start-Transcript -Path "$PSScriptRoot\tiny10.log"
+# Iniciar la transcripcion y preparar la ventana
+Start-Transcript -Path "$ScratchDisk\tiny10.log"
 
 $Host.UI.RawUI.WindowTitle = "Creador de imagen Tiny10"
 Clear-Host
-Write-Host "Bienvenido al creador de imagen Tiny10! Version: 04-02-2025"
+Write-Host "Bienvenido al creador de imagen Tiny10! Version: 05-02-24"
 
-$arquitecturaSistema = $Env:PROCESSOR_ARCHITECTURE
-New-Item -ItemType Directory -Force -Path "$DiscoTrabajo\tiny10\sources" | Out-Null
+# Preguntar sobre Edge y OneDrive
+$removeEdge = Read-Host "Deseas eliminar Microsoft Edge? (si/no)"
+$removeOneDrive = Read-Host "Deseas eliminar OneDrive? (si/no)"
+
+$hostArchitecture = $Env:PROCESSOR_ARCHITECTURE
+New-Item -ItemType Directory -Force -Path "$ScratchDisk\tiny10\sources" | Out-Null
 
 do {
-    $LetraUnidad = Read-Host "Por favor, ingrese la letra de la unidad donde esta montada la imagen de Windows 10"
-    if ($LetraUnidad -match '^[c-zC-Z]$') {
-        $LetraUnidad = $LetraUnidad + ":"
-        Write-Output "Letra de unidad establecida en $LetraUnidad"
+    $DriveLetter = Read-Host "Por favor ingresa la letra de la unidad para la imagen de Windows 10"
+    if ($DriveLetter -match '^[c-zC-Z]$') {
+        $DriveLetter = $DriveLetter + ":"
+        Write-Output "Letra de unidad establecida en $DriveLetter"
     } else {
-        Write-Output "Letra de unidad invalida. Por favor, ingrese una letra entre C y Z."
+        Write-Output "Letra de unidad invalida. Por favor ingresa una letra entre C y Z."
     }
-} while ($LetraUnidad -notmatch '^[c-zC-Z]:$')
+} while ($DriveLetter -notmatch '^[c-zC-Z]:$')
 
-# Verificar archivos de instalacion
-if ((Test-Path "$LetraUnidad\sources\boot.wim") -eq $false -or (Test-Path "$LetraUnidad\sources\install.wim") -eq $false) {
-    if ((Test-Path "$LetraUnidad\sources\install.esd") -eq $true) {
+if ((Test-Path "$DriveLetter\sources\boot.wim") -eq $false -or (Test-Path "$DriveLetter\sources\install.wim") -eq $false) {
+    if ((Test-Path "$DriveLetter\sources\install.esd") -eq $true) {
         Write-Host "Se encontro install.esd, convirtiendo a install.wim..."
-        Get-WindowsImage -ImagePath "$LetraUnidad\sources\install.esd"
-        $indice = Read-Host "Por favor, ingrese el indice de la imagen"
+        Get-WindowsImage -ImagePath "$DriveLetter\sources\install.esd"
+        $index = Read-Host "Por favor ingresa el indice de la imagen"
         Write-Host " "
-        Write-Host "Convirtiendo install.esd a install.wim. Esto puede tomar tiempo..."
-        Export-WindowsImage -SourceImagePath "$LetraUnidad\sources\install.esd" -SourceIndex $indice -DestinationImagePath "$DiscoTrabajo\tiny10\sources\install.wim" -Compressiontype Maximum -CheckIntegrity
+        Write-Host "Convirtiendo install.esd a install.wim. Esto puede tomar un tiempo..."
+        Export-WindowsImage -SourceImagePath "$DriveLetter\sources\install.esd" -SourceIndex $index -DestinationImagePath "$ScratchDisk\tiny10\sources\install.wim" -Compressiontype Maximum -CheckIntegrity
     } else {
-        Write-Host "No se encuentran los archivos de instalacion de Windows en la unidad especificada."
-        Write-Host "Por favor, ingrese la letra de unidad correcta."
+        Write-Host "No se pueden encontrar los archivos de instalacion del sistema operativo Windows en la letra de unidad especificada."
+        Write-Host "Por favor ingresa la letra de unidad de DVD correcta."
         exit
     }
 }
 
 Write-Host "Copiando imagen de Windows..."
-Copy-Item -Path "$LetraUnidad\*" -Destination "$DiscoTrabajo\tiny10" -Recurse -Force | Out-Null
-Set-ItemProperty -Path "$DiscoTrabajo\tiny10\sources\install.esd" -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
-Remove-Item "$DiscoTrabajo\tiny10\sources\install.esd" -ErrorAction SilentlyContinue
+Copy-Item -Path "$DriveLetter\*" -Destination "$ScratchDisk\tiny10" -Recurse -Force | Out-Null
+Set-ItemProperty -Path "$ScratchDisk\tiny10\sources\install.esd" -Name IsReadOnly -Value $false > $null 2>&1
+Remove-Item "$ScratchDisk\tiny10\sources\install.esd" > $null 2>&1
 Write-Host "Copia completada!"
 Start-Sleep -Seconds 2
 Clear-Host
 
 Write-Host "Obteniendo informacion de la imagen:"
-Get-WindowsImage -ImagePath "$DiscoTrabajo\tiny10\sources\install.wim"
-$indice = Read-Host "Por favor, ingrese el indice de la imagen"
+Get-WindowsImage -ImagePath "$ScratchDisk\tiny10\sources\install.wim"
+$index = Read-Host "Por favor ingresa el indice de la imagen"
 
-Write-Host "Montando imagen de Windows. Esto puede tomar tiempo..."
-$rutaWim = "$DiscoTrabajo\tiny10\sources\install.wim"
-& takeown "/F" $rutaWim 
-& icacls $rutaWim "/grant" "$($adminGroup.Value):(F)"
+Write-Host "Montando imagen de Windows. Esto puede tomar un tiempo."
+$wimFilePath = "$ScratchDisk\tiny10\sources\install.wim"
+& takeown "/F" $wimFilePath 
+& icacls $wimFilePath "/grant" "$($adminGroup.Value):(F)"
 
 try {
-    Set-ItemProperty -Path $rutaWim -Name IsReadOnly -Value $false -ErrorAction Stop
+    Set-ItemProperty -Path $wimFilePath -Name IsReadOnly -Value $false -ErrorAction Stop
 } catch {
-    Write-Warning "No se pudo modificar el atributo de solo lectura. Continuando..."
+    # Este bloque capturara el error y lo suprimira
 }
 
-New-Item -ItemType Directory -Force -Path "$DiscoTrabajo\directoriotemporal" > $null
-Mount-WindowsImage -ImagePath "$DiscoTrabajo\tiny10\sources\install.wim" -Index $indice -Path "$DiscoTrabajo\directoriotemporal"
+New-Item -ItemType Directory -Force -Path "$ScratchDisk\scratchdir" > $null
+Mount-WindowsImage -ImagePath "$ScratchDisk\tiny10\sources\install.wim" -Index $index -Path "$ScratchDisk\scratchdir"
 
-# Obtener informacion del idioma del sistema
-$infoIdioma = & dism /Get-Intl "/Image:$($DiscoTrabajo)\directoriotemporal"
-$lineaIdioma = $infoIdioma -split '\n' | Where-Object { $_ -match 'Idioma predeterminado de la interfaz de usuario del sistema : ([a-zA-Z]{2}-[a-zA-Z]{2})' }
+# Obtener informacion de la imagen
+$imageInfo = & dism /English /Get-WimInfo "/wimFile:$($ScratchDisk)\tiny10\sources\install.wim" "/index:$index"
+$lines = $imageInfo -split '\r?\n'
 
-if ($lineaIdioma) {
-    $codigoIdioma = $Matches[1]
-    Write-Host "Codigo de idioma del sistema: $codigoIdioma"
-} else {
-    Write-Host "No se encontro el codigo de idioma."
+foreach ($line in $lines) {
+    if ($line -like '*Architecture : *') {
+        $architecture = $line -replace 'Architecture : ',''
+        if ($architecture -eq 'x64') {
+            $architecture = 'amd64'
+        }
+        Write-Host "Arquitectura: $architecture"
+        break
+    }
 }
 
-Write-Host "Montaje completado. Procediendo a eliminar aplicaciones..."
+if (-not $architecture) {
+    Write-Host "Informacion de arquitectura no encontrada."
+}
 
-# Lista de aplicaciones a eliminar (manteniendo Xbox)
-$paquetes = & dism "/image:$($DiscoTrabajo)\directoriotemporal" '/Get-ProvisionedAppxPackages' |
+Write-Host "Montaje completado! Realizando eliminacion de aplicaciones..."
+
+# Aplicaciones especificas de Windows 10 para eliminar (manteniendo Xbox)
+$packages = & dism "/image:$($ScratchDisk)\scratchdir" '/Get-ProvisionedAppxPackages' |
     ForEach-Object {
-        if ($_ -match 'Nombre del paquete : (.*)') {
+        if ($_ -match 'PackageName : (.*)') {
             $matches[1]
         }
     }
 
-$prefijosPaquetes = @(
+$packagePrefixes = @(
     'Microsoft.BingNews_',
     'Microsoft.BingWeather_',
     'Microsoft.GetHelp_',
@@ -142,221 +153,144 @@ $prefijosPaquetes = @(
     'microsoft.windowscommunicationsapps_'
 )
 
-$paquetesEliminar = $paquetes | Where-Object {
-    $nombrePaquete = $_
-    $prefijosPaquetes | Where-Object { $nombrePaquete -like "$_*" }
+$packagesToRemove = $packages | Where-Object {
+    $packageName = $_
+    $packagePrefixes -contains ($packagePrefixes | Where-Object { $packageName -like "$_*" })
 }
 
-foreach ($paquete in $paquetesEliminar) {
-    Write-Host "Eliminando paquete: $paquete"
-    & dism "/image:$($DiscoTrabajo)\directoriotemporal" '/Remove-ProvisionedAppxPackage' "/PackageName:$paquete"
+foreach ($package in $packagesToRemove) {
+    & dism "/image:$($ScratchDisk)\scratchdir" '/Remove-ProvisionedAppxPackage' "/PackageName:$package"
 }
 
-Write-Host "Eliminando Edge..."
-Remove-Item -Path "$DiscoTrabajo\directoriotemporal\Program Files (x86)\Microsoft\Edge" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "$DiscoTrabajo\directoriotemporal\Program Files (x86)\Microsoft\EdgeUpdate" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "$DiscoTrabajo\directoriotemporal\Program Files (x86)\Microsoft\EdgeCore" -Recurse -Force -ErrorAction SilentlyContinue
+if ($removeEdge -eq 'si') {
+    Write-Host "Eliminando Edge:"
+    Remove-Item -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft\Edge" -Recurse -Force | Out-Null
+    Remove-Item -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft\EdgeUpdate" -Recurse -Force | Out-Null
+    Remove-Item -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft\EdgeCore" -Recurse -Force | Out-Null
+}
 
-Write-Host "Eliminando OneDrive..."
-& takeown "/f" "$DiscoTrabajo\directoriotemporal\Windows\System32\OneDriveSetup.exe" | Out-Null
-& icacls "$DiscoTrabajo\directoriotemporal\Windows\System32\OneDriveSetup.exe" "/grant" "$($adminGroup.Value):(F)" "/T" "/C" | Out-Null
-Remove-Item -Path "$DiscoTrabajo\directoriotemporal\Windows\System32\OneDriveSetup.exe" -Force -ErrorAction SilentlyContinue
+if ($removeOneDrive -eq 'si') {
+    Write-Host "Eliminando OneDrive:"
+    & takeown "/f" "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" | Out-Null
+    & icacls "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" "/grant" "$($adminGroup.Value):(F)" "/T" "/C" | Out-Null
+    Remove-Item -Path "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" -Force | Out-Null
+}
 
 Write-Host "Eliminacion completada!"
+
 Start-Sleep -Seconds 2
+
 Clear-Host
 
 Write-Host "Cargando registro..."
-$registros = @{
-    'COMPONENTS' = "$DiscoTrabajo\directoriotemporal\Windows\System32\config\COMPONENTS"
-    'DEFAULT' = "$DiscoTrabajo\directoriotemporal\Windows\System32\config\default"
-    'NTUSER' = "$DiscoTrabajo\directoriotemporal\Users\Default\ntuser.dat"
-    'SOFTWARE' = "$DiscoTrabajo\directoriotemporal\Windows\System32\config\SOFTWARE"
-    'SYSTEM' = "$DiscoTrabajo\directoriotemporal\Windows\System32\config\SYSTEM"
-}
+reg load HKLM\zCOMPONENTS "$ScratchDisk\scratchdir\Windows\System32\config\COMPONENTS" | Out-Null
+reg load HKLM\zDEFAULT "$ScratchDisk\scratchdir\Windows\System32\config\default" | Out-Null
+reg load HKLM\zNTUSER "$ScratchDisk\scratchdir\Users\Default\ntuser.dat" | Out-Null
+reg load HKLM\zSOFTWARE "$ScratchDisk\scratchdir\Windows\System32\config\SOFTWARE" | Out-Null
+reg load HKLM\zSYSTEM "$ScratchDisk\scratchdir\Windows\System32\config\SYSTEM" | Out-Null
 
-foreach ($reg in $registros.GetEnumerator()) {
-    $proceso = Start-Process "reg" -ArgumentList "load", "HKLM\z$($reg.Key)", "$($reg.Value)" -PassThru -Wait
-    if ($proceso.ExitCode -ne 0) {
-        Write-Warning "Error al cargar registro $($reg.Key). Continuando..."
-    }
-}
+Write-Host "Deshabilitando aplicaciones patrocinadas:"
+& reg add "HKLM\zNTUSER\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "OemPreInstalledAppsEnabled" /t REG_DWORD /d 0 /f | Out-Null
+& reg add "HKLM\zNTUSER\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "PreInstalledAppsEnabled" /t REG_DWORD /d 0 /f | Out-Null
+& reg add "HKLM\zNTUSER\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SilentInstalledAppsEnabled" /t REG_DWORD /d 0 /f | Out-Null
+& reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent" /v "DisableWindowsConsumerFeatures" /t REG_DWORD /d 1 /f | Out-Null
 
-Write-Host "Deshabilitando aplicaciones patrocinadas..."
-$regKeys = @{
-    'HKLM\zNTUSER\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' = @{
-        'OemPreInstalledAppsEnabled' = 0
-        'PreInstalledAppsEnabled' = 0
-        'SilentInstalledAppsEnabled' = 0
-    }
-    'HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent' = @{
-        'DisableWindowsConsumerFeatures' = 1
-    }
-}
-
-foreach ($path in $regKeys.Keys) {
-    foreach ($value in $regKeys[$path].GetEnumerator()) {
-        $proceso = Start-Process "reg" -ArgumentList "add", $path, "/v", $value.Key, "/t", "REG_DWORD", "/d", $value.Value, "/f" -PassThru -Wait
-        if ($proceso.ExitCode -ne 0) {
-            Write-Warning "Error al modificar registro $path\$($value.Key). Continuando..."
-        }
-    }
-}
-
-Write-Host "Deshabilitando telemetria..."
-$telemetryKeys = @{
-    'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo' = @{
-        'Enabled' = 0
-    }
-    'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Privacy' = @{
-        'TailoredExperiencesWithDiagnosticDataEnabled' = 0
-    }
-    'HKLM\zSOFTWARE\Policies\Microsoft\Windows\DataCollection' = @{
-        'AllowTelemetry' = 0
-    }
-}
-
-foreach ($path in $telemetryKeys.Keys) {
-    foreach ($value in $telemetryKeys[$path].GetEnumerator()) {
-        $proceso = Start-Process "reg" -ArgumentList "add", $path, "/v", $value.Key, "/t", "REG_DWORD", "/d", $value.Value, "/f" -PassThru -Wait
-        if ($proceso.ExitCode -ne 0) {
-            Write-Warning "Error al modificar registro $path\$($value.Key). Continuando..."
-        }
-    }
-}
-
-# Servicios a deshabilitar (manteniendo servicios de Xbox)
-$serviciosADeshabilitar = @(
-    "DiagTrack",                # Telemetria de Windows
-    "dmwappushservice",         # Servicio de mensajes WAP Push
-    "WSearch"                   # Busqueda de Windows
-)
-
-foreach ($servicio in $serviciosADeshabilitar) {
-    $proceso = Start-Process "reg" -ArgumentList "add", "HKLM\zSYSTEM\ControlSet001\Services\$servicio", "/v", "Start", "/t", "REG_DWORD", "/d", "4", "/f" -PassThru -Wait
-    if ($proceso.ExitCode -ne 0) {
-        Write-Warning "Error al deshabilitar servicio $servicio. Continuando..."
-    }
-}
+Write-Host "Deshabilitando Telemetria:"
+& reg add "HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" /v "Enabled" /t REG_DWORD /d 0 /f | Out-Null
+& reg add "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Privacy" /v "TailoredExperiencesWithDiagnosticDataEnabled" /t REG_DWORD /d 0 /f | Out-Null
+& reg add "HKLM\zSOFTWARE\Policies\Microsoft\Windows\DataCollection" /v "AllowTelemetry" /t REG_DWORD /d 0 /f | Out-Null
 
 Write-Host "Descargando registro..."
-$registros = @('COMPONENTS', 'DEFAULT', 'NTUSER', 'SOFTWARE', 'SYSTEM')
-foreach ($reg in $registros) {
-    $proceso = Start-Process "reg" -ArgumentList "unload", "HKLM\z$reg" -PassThru -Wait
-    if ($proceso.ExitCode -ne 0) {
-        Write-Warning "Error al descargar registro $reg. Continuando..."
-    }
-    Start-Sleep -Seconds 1
-}
+reg unload HKLM\zCOMPONENTS | Out-Null
+reg unload HKLM\zDEFAULT | Out-Null
+reg unload HKLM\zNTUSER | Out-Null
+reg unload HKLM\zSOFTWARE | Out-Null
+reg unload HKLM\zSYSTEM | Out-Null
 
 Write-Host "Limpiando imagen..."
-try {
-    Repair-WindowsImage -Path "$DiscoTrabajo\directoriotemporal" -StartComponentCleanup -ResetBase
-    Write-Host "Limpieza completada."
-} catch {
-    Write-Warning "Error durante la limpieza de la imagen. Continuando..."
-}
+Repair-WindowsImage -Path "$ScratchDisk\scratchdir" -StartComponentCleanup -ResetBase
+Write-Host "Limpieza completada."
 
 Write-Host "Desmontando imagen..."
-try {
-    Dismount-WindowsImage -Path "$DiscoTrabajo\directoriotemporal" -Save
-    Write-Host "Imagen desmontada exitosamente."
-} catch {
-    Write-Warning "Error al desmontar la imagen. Intentando forzar el desmontaje..."
-    try {
-        Dismount-WindowsImage -Path "$DiscoTrabajo\directoriotemporal" -Save -Force
-    } catch {
-        Write-Error "Error critico al desmontar la imagen. El proceso no puede continuar."
-        exit 1
-    }
-}
+Dismount-WindowsImage -Path "$ScratchDisk\scratchdir" -Save
 
 Write-Host "Exportando imagen..."
-try {
-    Export-WindowsImage -SourceImagePath "$DiscoTrabajo\tiny10\sources\install.wim" -SourceIndex $indice -DestinationImagePath "$DiscoTrabajo\tiny10\sources\install2.wim" -CompressionType Fast
-    Remove-Item -Path "$DiscoTrabajo\tiny10\sources\install.wim" -Force -ErrorAction SilentlyContinue
-    Rename-Item -Path "$DiscoTrabajo\tiny10\sources\install2.wim" -NewName "install.wim"
-} catch {
-    Write-Error "Error al exportar la imagen. El proceso no puede continuar."
-    exit 1
-}
+Export-WindowsImage -SourceImagePath "$ScratchDisk\tiny10\sources\install.wim" -SourceIndex $index -DestinationImagePath "$ScratchDisk\tiny10\sources\install2.wim" -CompressionType Fast
+Remove-Item -Path "$ScratchDisk\tiny10\sources\install.wim" -Force | Out-Null
+Rename-Item -Path "$ScratchDisk\tiny10\sources\install2.wim" -NewName "install.wim" | Out-Null
 
-# Procesar boot.wim y generar ISO
-Write-Host "Procesando imagen boot.wim..."
-New-Item -ItemType Directory -Force -Path "$DiscoTrabajo\boottemp" > $null
-Mount-WindowsImage -ImagePath "$DiscoTrabajo\tiny10\sources\boot.wim" -Index 2 -Path "$DiscoTrabajo\boottemp"
+Write-Host "Procesando boot.wim..."
+Mount-WindowsImage -ImagePath "$ScratchDisk\tiny10\sources\boot.wim" -Index 2 -Path "$ScratchDisk\scratchdir"
 
-# Aplicar cambios a boot.wim
-Write-Host "Aplicando optimizaciones a boot.wim..."
-$serviciosBootWim = @(
-    "DiagTrack",
-    "dmwappushservice"
-)
+Write-Host "Cargando registro..."
+reg load HKLM\zCOMPONENTS "$ScratchDisk\scratchdir\Windows\System32\config\COMPONENTS" | Out-Null
+reg load HKLM\zDEFAULT "$ScratchDisk\scratchdir\Windows\System32\config\default" | Out-Null
+reg load HKLM\zNTUSER "$ScratchDisk\scratchdir\Users\Default\ntuser.dat" | Out-Null
+reg load HKLM\zSOFTWARE "$ScratchDisk\scratchdir\Windows\System32\config\SOFTWARE" | Out-Null
+reg load HKLM\zSYSTEM "$ScratchDisk\scratchdir\Windows\System32\config\SYSTEM" | Out-Null
 
-foreach ($servicio in $serviciosBootWim) {
-    try {
-        Disable-WindowsOptionalFeature -Path "$DiscoTrabajo\boottemp" -FeatureName $servicio -Remove -NoRestart -ErrorAction SilentlyContinue
-    } catch {
-        Write-Warning "No se pudo deshabilitar el servicio $servicio en boot.wim. Continuando..."
-    }
-}
+Write-Host "Descargando registro..."
+reg unload HKLM\zCOMPONENTS | Out-Null
+reg unload HKLM\zDEFAULT | Out-Null
+reg unload HKLM\zNTUSER | Out-Null
+reg unload HKLM\zSOFTWARE | Out-Null
+reg unload HKLM\zSYSTEM | Out-Null
 
-# Desmontar y guardar boot.wim
-Write-Host "Guardando cambios en boot.wim..."
-try {
-    Dismount-WindowsImage -Path "$DiscoTrabajo\boottemp" -Save
-} catch {
-    Write-Warning "Error al desmontar boot.wim. Intentando forzar el desmontaje..."
-    try {
-        Dismount-WindowsImage -Path "$DiscoTrabajo\boottemp" -Save -Force
-    } catch {
-        Write-Error "Error critico al desmontar boot.wim."
+Write-Host "Desmontando imagen..."
+
+Dismount-WindowsImage -Path "$ScratchDisk\scratchdir" -Save
+
+Write-Host "La imagen tiny10 esta ahora completada. Procediendo con la creacion del ISO..."
+Write-Host "Copiando archivo desatendido..."
+Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$ScratchDisk\tiny10\autounattend.xml" -Force | Out-Null
+
+Write-Host "Creando imagen ISO..."
+$ADKDepTools = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\$hostArchitecture\Oscdimg"
+$localOSCDIMGPath = "$PSScriptRoot\oscdimg.exe"
+
+if ([System.IO.Directory]::Exists($ADKDepTools)) {
+    Write-Host "Se utilizara oscdimg.exe del ADK del sistema."
+    $OSCDIMG = "$ADKDepTools\oscdimg.exe"
+} else {
+    Write-Host "Carpeta ADK no encontrada. Se utilizara el oscdimg.exe incluido."
+    
+    if (-not (Test-Path -Path $localOSCDIMGPath)) {
+        Write-Error "ERROR: oscdimg.exe no encontrado en el directorio actual ($PSScriptRoot)"
+        Write-Host "Por favor asegurate de que oscdimg.exe este en el mismo directorio que este script."
         exit 1
+    } else {
+        Write-Host "Usando oscdimg.exe local"
     }
-}
-Remove-Item -Path "$DiscoTrabajo\boottemp" -Recurse -Force -ErrorAction SilentlyContinue
-
-# Verificar oscdimg.exe
-Write-Host "Verificando herramientas necesarias..."
-$oscdimgPath = Join-Path $PSScriptRoot "oscdimg.exe"
-
-if (-not (Test-Path $oscdimgPath)) {
-    Write-Error "ERROR: No se encuentra oscdimg.exe en el directorio actual ($PSScriptRoot)"
-    Write-Host "Por favor, asegurese de que oscdimg.exe este en el mismo directorio que este script."
-    exit 1
+    
+    $OSCDIMG = $localOSCDIMGPath
 }
 
-# Preparar nombre y ruta del ISO
-$fechaHora = Get-Date -Format "yyyyMMdd-HHmm"
-$isoNombre = "tiny10_$fechaHora.iso"
-$isoRuta = Join-Path $PSScriptRoot $isoNombre
+# Crear marca de tiempo para el nombre del archivo ISO
+$timestamp = Get-Date -Format "yyyyMMdd-HHmm"
+$isoName = "tiny10_$timestamp.iso"
+$isoPath = Join-Path $PSScriptRoot $isoName
 
-Write-Host "Generando archivo ISO en: $isoRuta"
+Write-Host "Generando archivo ISO en: $isoPath"
 Write-Host "Este proceso puede tomar varios minutos..."
 
 # Crear el ISO usando oscdimg
-try {
-    & $oscdimgPath -m -o -u2 -udfver102 -bootdata:2#p0,e,b"$DiscoTrabajo\tiny10\boot\etfsboot.com"#pEF,e,b"$DiscoTrabajo\tiny10\efi\microsoft\boot\efisys.bin" "$DiscoTrabajo\tiny10" "$isoRuta"
+& "$OSCDIMG" '-m' '-o' '-u2' '-udfver102' "-bootdata:2#p0,e,b$ScratchDisk\tiny10\boot\etfsboot.com#pEF,e,b$ScratchDisk\tiny10\efi\microsoft\boot\efisys.bin" "$ScratchDisk\tiny10" "$isoPath"
 
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "`nCreacion de ISO completada exitosamente!"
-        Write-Host "El archivo ISO se ha creado en: $isoRuta"
-    } else {
-        Write-Error "Error al crear el archivo ISO. Codigo de error: $LASTEXITCODE"
-    }
-} catch {
-    Write-Error "Error inesperado al crear el ISO: $($_.Exception.Message)"
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "`nCreacion del ISO completada exitosamente!"
+    Write-Host "El archivo ISO ha sido creado en: $isoPath"
+} else {
+    Write-Error "Error al crear el archivo ISO. Codigo de error: $LASTEXITCODE"
     exit 1
 }
 
-# Limpiar archivos temporales
-Write-Host "`nLimpiando archivos temporales..."
-Remove-Item -Path "$DiscoTrabajo\tiny10" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "$DiscoTrabajo\directoriotemporal" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "$DiscoTrabajo\boottemp" -Recurse -Force -ErrorAction SilentlyContinue
+# Limpieza
+Write-Host "`nRealizando limpieza..."
+Remove-Item -Path "$ScratchDisk\tiny10" -Recurse -Force | Out-Null
+Remove-Item -Path "$ScratchDisk\scratchdir" -Recurse -Force | Out-Null
 
-Write-Host "`nProceso finalizado exitosamente."
-Write-Host "El archivo ISO se encuentra en: $isoRuta"
-Write-Host "El registro del proceso se encuentra en: $PSScriptRoot\tiny10.log"
+Write-Host "`nProceso completado exitosamente."
+Write-Host "El archivo ISO se encuentra en: $isoPath"
+Write-Host "El registro del proceso se puede encontrar en: $PSScriptRoot\tiny10.log"
 
 Stop-Transcript
