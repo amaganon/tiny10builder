@@ -233,4 +233,40 @@ Remove-Item -Path "$WorkDrive\tiny10\sources\install.wim" -Force | Out-Null
 Rename-Item -Path "$WorkDrive\tiny10\sources\install2.wim" -NewName "install.wim" | Out-Null
 
 Write-Host "Processing boot.wim image..."
+
+# CREATE ISO IMAGE
+
+Write-Host "Verifying oscdimg.exe presence..."
+$oscdimgPath = Join-Path $PSScriptRoot "oscdimg.exe"
+
+if (-not (Test-Path $oscdimgPath)) {
+    Write-Host "ERROR: oscdimg.exe not found in the current directory."
+    Write-Host "Please ensure oscdimg.exe is located in the same directory as this script."
+    exit
+}
+
+Write-Host "Creating ISO file..."
+$dateTime = Get-Date -Format "yyyyMMdd-HHmm"
+$isoName = "tiny10_$dateTime.iso"
+$isoPath = Join-Path $WorkDrive $isoName
+
+# Create ISO using oscdimg
+& $oscdimgPath -m -o -u2 -udfver102 -bootdata:2#p0,e,b"$WorkDrive\tiny10\boot\etfsboot.com"#pEF,e,b"$WorkDrive\tiny10\efi\microsoft\boot\efisys.bin" "$WorkDrive\tiny10" "$isoPath"
+
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "`nProcess completed successfully!"
+    Write-Host "ISO file has been created at: $isoPath"
+} else {
+    Write-Host "`nError creating ISO file. Error code: $LASTEXITCODE"
+}
+
+# Clean up temporary files
+Write-Host "`nCleaning up temporary files..."
+Remove-Item -Path "$WorkDrive\tiny10" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "$WorkDrive\tempdirectory" -Recurse -Force -ErrorAction SilentlyContinue
+
+Write-Host "Process finished."
+
+Stop-Transcript
+
 Clear-Host
